@@ -1,0 +1,39 @@
+pipeline {
+  agent any
+  stages {
+    stage('Build') {
+        agent {
+          node {
+            label "maven"
+          }
+        }
+        steps {
+            sh "mvn -Dmaven.test.failure.ignore=true clean package"
+        }
+    
+        post {
+          // If Maven was able to run the tests, even if some of the test
+          // failed, record the test results and archive the jar file.
+          success {
+            junit '**/target/surefire-reports/TEST-*.xml'
+            archiveArtifacts 'target/*.jar'
+          }
+          always {
+            echo "Ejecutó build"
+          }
+        }
+    }
+    stage('Aprobacion') {
+            // no agent, so executors are not used up when waiting for approvals
+            agent none
+            steps {
+                script {
+                    def deploymentDelay = input id: 'Deploy', message: 'Deploy to production?', submitter: 'fsaravia,gcisneros', parameters: [choice(choices: ['Si', 'No'], description: 'Hours to delay deployment?', name: 'deploymentDelay')]
+                    sleep time: deploymentDelay.toInteger(), unit: 'HOURS'
+                }
+            }
+        }
+    
+    }
+  
+}

@@ -1,0 +1,73 @@
+pipeline {
+  agent any
+  stages {
+    stage('Build') {
+      agent {
+        node {
+          label "maven"
+        }
+      }
+      steps {
+          sh "mvn -Dmaven.test.failure.ignore=true clean package"
+      }
+
+      post {
+        // If Maven was able to run the tests, even if some of the test
+        // failed, record the test results and archive the jar file.
+        success {
+          junit '**/target/surefire-reports/TEST-*.xml'
+          archiveArtifacts 'target/*.jar'
+        }
+        always {
+          echo "Ejecutó build"
+        }
+      }
+    }
+    stage("build & SonarQube analysis") {
+      agent {
+        node {
+          label "maven"
+        }
+      }
+      steps {
+        withSonarQubeEnv('Sonar Gire') {
+          sh 'mvn clean package sonar:sonar'
+        }
+      }
+    }
+    stage("Quality Gate") {
+      steps {
+        timeout(time: 1, unit: 'HOURS') {
+          waitForQualityGate abortPipeline: true
+        }
+      }
+    }
+    stage('OWASP Scan') {
+      agent {
+        node {
+          label "jenkins-agent-zap"
+        }
+      }
+      steps {
+        sh '''
+          /zap/zap-api-scan.py -t https://petstore.swagger.io/v2/swagger.json -f openapi -r report.html || return_code=$?
+          echo "exit value was  - " $return_code
+        '''
+      }
+      post {
+        always {
+          // publish html
+          publishHTML target: [
+              allowMissing: false,
+              alwaysLinkToLastBuild: false,
+              includes: '**/*',
+              keepAll: true,
+              reportDir: '/zap/wrk',
+              reportFiles: 'report.html',
+              reportName: 'OWASP Zed Attack Proxy'
+          ]
+        }
+      }
+    }
+  }
+}
